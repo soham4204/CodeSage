@@ -7,12 +7,18 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 from pydantic import BaseModel
 from auth import get_current_user
+import git
+import tempfile 
+import shutil
+import os
+from parser import parse_code_file
 
 if not firebase_admin._apps:
     cred = credentials.Certificate("serviceAccountKey.json")
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
+
 class ProjectCreate(BaseModel):
     github_url: str
 class ProjectUpdate(BaseModel):
@@ -53,7 +59,6 @@ def get_profile(user: dict = Depends(get_current_user)):
     else:
         return {"displayName": "", "bio": ""}  # Default if profile doesn't exist
 
-
 @app.post("/api/profile")
 def update_profile(profile: UserProfile, user: dict = Depends(get_current_user)):
     """
@@ -91,7 +96,9 @@ def create_project(project_data: ProjectCreate, user: dict = Depends(get_current
 def get_projects(user: dict = Depends(get_current_user)):
     owner_uid = user.get("uid")
     projects_collection = db.collection('projects')
-    user_projects_query = projects_collection.where('owner_uid', '==', owner_uid)
+    from google.cloud.firestore_v1.base_query import FieldFilter
+
+    user_projects_query = projects_collection.where(filter=FieldFilter('owner_uid', '==', owner_uid))
     projects = []
     for doc in user_projects_query.stream():
         project_data = doc.to_dict()
@@ -135,6 +142,111 @@ def delete_project(project_id: str, user: dict = Depends(get_current_user)):
 
     project_ref.delete()
     return {"message": "Project deleted successfully"}
+
+@app.post("/api/projects/{project_id}/analyze")
+def analyze_project(project_id: str, user: dict = Depends(get_current_user)):
+    """
+    Protected endpoint to trigger the analysis of a project.
+    This clones the repo, parses code files, and stores analysis results.
+    """
+    owner_uid = user.get("uid")
+    project_ref = db.collection('projects').document(project_id)
+    project_doc = project_ref.get()
+
+    if not project_doc.exists:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    project_data = project_doc.to_dict()
+    if project_data.get('owner_uid') != owner_uid:
+        raise HTTPException(status_code=403, detail="Not authorized for this project")
+
+    project_ref.update({"status": "analyzing"})
+    github_url = project_data.get('github_url')
+    
+    analysis_results = []
+    project_stats = { 'total_files': 0, 'parsed_files': 0, 'languages': set() }
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        try:
+            print(f"Cloning {github_url} into {temp_dir}...")
+            git.Repo.clone_from(github_url, temp_dir)
+            print("✅ Successfully cloned.")
+
+            print("Starting code parsing with tree-sitter...")
+            for root, dirs, files in os.walk(temp_dir):
+                dirs[:] = [d for d in dirs if d not in {'.git', 'node_modules', 'build', 'dist'}]
+                
+                for file in files:
+                    project_stats['total_files'] += 1
+                    file_path = os.path.join(root, file)
+                    
+                    # Use our robust parser
+                    parsed_data = parse_code_file(file_path)
+                    
+                    if parsed_data:
+                        # Update stats and results
+                        analysis_results.append(parsed_data)
+                        project_stats['parsed_files'] += 1
+                        project_stats['languages'].add(parsed_data.get('language'))
+                        print(f"   ✅ Parsed {file_path}")
+
+            project_stats['languages'] = list(project_stats['languages'])
+            
+            # Store full analysis in a subcollection
+            analysis_data = {
+                'files': analysis_results,
+                'stats': project_stats,
+                'analyzed_at': datetime.utcnow()
+            }
+            project_ref.collection('analysis').document('latest').set(analysis_data)
+            
+            # Update the main project document with a summary and final status
+            project_ref.update({
+                "status": "completed",
+                "last_analyzed": datetime.utcnow(),
+                "analysis_summary": project_stats
+            })
+            print("✅ Analysis complete and results stored.")
+
+        except Exception as e:
+            # ... (Error handling remains the same) ...
+            project_ref.update({"status": "error", "error_message": f"Analysis failed: {str(e)}"})
+            raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
+
+    return {
+        "message": "Analysis complete!",
+        "stats": project_stats
+    }
+
+@app.get("/api/projects/{project_id}/analysis")
+def get_project_analysis(project_id: str, user: dict = Depends(get_current_user)):
+    """
+    Get the analysis results for a specific project.
+    """
+    owner_uid = user.get("uid")
+    project_ref = db.collection('projects').document(project_id)
+    project_doc = project_ref.get()
+
+    if not project_doc.exists:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if project_doc.to_dict().get('owner_uid') != owner_uid:
+        raise HTTPException(status_code=403, detail="Not authorized for this project")
+
+    # Get analysis results
+    analysis_ref = db.collection('projects').document(project_id).collection('analysis').document('latest')
+    analysis_doc = analysis_ref.get()
+
+    if not analysis_doc.exists:
+        raise HTTPException(status_code=404, detail="No analysis found for this project")
+
+    analysis_data = analysis_doc.to_dict()
+    
+    # Convert datetime objects to ISO format for JSON serialization
+    if 'analyzed_at' in analysis_data:
+        analysis_data['analyzed_at'] = analysis_data['analyzed_at'].isoformat()
+
+    return analysis_data
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

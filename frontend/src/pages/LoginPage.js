@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase';
-import { Mail, Lock, Eye, EyeOff, LogIn, AlertCircle, Github, Chrome } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, LogIn, AlertCircle, Github, Chrome, X } from 'lucide-react';
 
 function LoginPage() {
   const navigate = useNavigate();
@@ -92,32 +92,38 @@ function LoginPage() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-80px)] flex items-center justify-center p-6 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+    <div className="min-h-screen flex items-center justify-center p-6">
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-gradient-to-r from-cs-red to-red-600 rounded-xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+          <div className="w-16 h-16 bg-gradient-to-r from-cs-red to-cs-red-dark rounded-xl flex items-center justify-center mx-auto mb-4 shadow-lg">
             <LogIn size={24} className="text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">Welcome Back</h1>
+          <h1 className="text-4xl font-bold text-white mb-2">Welcome Back</h1>
           <p className="text-cs-gray">Sign in to your account to continue</p>
         </div>
 
         {/* Main Form */}
-        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-8 border border-gray-700 shadow-2xl">
+        <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-md border border-white/20 rounded-xl p-8 shadow-2xl">
           {/* Global Error Message */}
           {error && (
             <div className="flex items-center p-4 mb-6 bg-red-900/50 border border-red-700 text-red-300 rounded-lg">
               <AlertCircle size={20} className="mr-3 flex-shrink-0" />
               <span className="text-sm">{error}</span>
+              <button
+                onClick={() => setError('')}
+                className="ml-auto text-current opacity-70 hover:opacity-100"
+              >
+                <X size={16} />
+              </button>
             </div>
           )}
 
           <form onSubmit={handleLogin} className="space-y-6">
             {/* Email Field */}
             <div>
-              <label className="flex items-center text-sm font-semibold text-cs-gray mb-2">
-                <Mail size={16} className="mr-2" />
+              <label className="flex items-center text-sm font-semibold text-white mb-3">
+                <Mail size={16} className="mr-2 text-cs-red" />
                 Email Address
               </label>
               <div className="relative">
@@ -126,7 +132,7 @@ function LoginPage() {
                   value={email}
                   onChange={handleEmailChange}
                   placeholder="Enter your email"
-                  className={`w-full pl-12 pr-4 py-4 text-white bg-gray-700 rounded-lg border transition-all duration-200 placeholder-gray-400 ${
+                  className={`w-full pl-12 pr-4 py-4 text-white bg-gray-950 rounded-lg border transition-all duration-200 placeholder-gray-400 ${
                     emailError 
                       ? 'border-red-500 focus:ring-red-500' 
                       : 'border-gray-600 focus:border-transparent focus:ring-2 focus:ring-cs-red'
@@ -144,8 +150,8 @@ function LoginPage() {
 
             {/* Password Field */}
             <div>
-              <label className="flex items-center text-sm font-semibold text-cs-gray mb-2">
-                <Lock size={16} className="mr-2" />
+              <label className="flex items-center text-sm font-semibold text-white mb-3">
+                <Lock size={16} className="mr-2 text-cs-red" />
                 Password
               </label>
               <div className="relative">
@@ -154,7 +160,7 @@ function LoginPage() {
                   value={password}
                   onChange={handlePasswordChange}
                   placeholder="Enter your password"
-                  className={`w-full pl-12 pr-12 py-4 text-white bg-gray-700 rounded-lg border transition-all duration-200 placeholder-gray-400 ${
+                  className={`w-full pl-12 pr-12 py-4 text-white bg-gray-950 rounded-lg border transition-all duration-200 placeholder-gray-400 ${
                     passwordError 
                       ? 'border-red-500 focus:ring-red-500' 
                       : 'border-gray-600 focus:border-transparent focus:ring-2 focus:ring-cs-red'
@@ -179,7 +185,7 @@ function LoginPage() {
 
             {/* Forgot Password Link */}
             <div className="text-right">
-              <Link to="/forgot-password" className="text-sm text-cs-red hover:text-red-400 transition-colors">
+              <Link to="/forgot-password" className="text-sm text-cs-red hover:text-white transition-colors">
                 Forgot your password?
               </Link>
             </div>
@@ -210,18 +216,18 @@ function LoginPage() {
 
           {/* Divider */}
           <div className="flex items-center my-6">
-            <div className="flex-1 border-t border-gray-600"></div>
+            <div className="flex-1 border-t border-gray-500"></div>
             <span className="px-4 text-sm text-cs-gray">or</span>
-            <div className="flex-1 border-t border-gray-600"></div>
+            <div className="flex-1 border-t border-gray-500"></div>
           </div>
 
           {/* Social Login Options */}
           <div className="space-y-3">
-            <button className="w-full flex items-center justify-center py-3 px-4 bg-gray-700 text-white rounded-lg border border-gray-600 hover:bg-gray-600 transition-colors">
+            <button className="w-full flex items-center justify-center py-3 px-4 bg-gray-950 text-white rounded-lg border border-gray-600 hover:border-cs-red hover:bg-gray-800 transition-all duration-200">
               <Chrome size={20} className="mr-3" />
               Continue with Google
             </button>
-            <button className="w-full flex items-center justify-center py-3 px-4 bg-gray-700 text-white rounded-lg border border-gray-600 hover:bg-gray-600 transition-colors">
+            <button className="w-full flex items-center justify-center py-3 px-4 bg-gray-950 text-white rounded-lg border border-gray-600 hover:border-cs-red hover:bg-gray-800 transition-all duration-200">
               <Github size={20} className="mr-3" />
               Continue with GitHub
             </button>
@@ -232,7 +238,7 @@ function LoginPage() {
             Don't have an account?{' '}
             <Link 
               to="/signup" 
-              className="text-cs-red hover:text-red-400 font-semibold transition-colors"
+              className="text-cs-red hover:text-white font-semibold transition-colors"
             >
               Create Account
             </Link>

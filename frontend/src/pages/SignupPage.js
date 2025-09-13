@@ -4,7 +4,7 @@ import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase';
 import { 
   Mail, Lock, Eye, EyeOff, User, UserPlus, AlertCircle, 
-  Check, Chrome, Github, ArrowRight, ArrowLeft, Edit3 
+  Check, Chrome, Github, ArrowRight, ArrowLeft, Edit3, X 
 } from 'lucide-react';
 import axios from 'axios';
 
@@ -197,14 +197,14 @@ function SignupPage() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-80px)] flex items-center justify-center p-6 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+    <div className="min-h-screen flex items-center justify-center p-6">
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-gradient-to-r from-cs-red to-red-600 rounded-xl flex items-center justify-center mx-auto mb-4 shadow-lg">
+          <div className="w-16 h-16 bg-gradient-to-r from-cs-red to-cs-red-dark rounded-xl flex items-center justify-center mx-auto mb-4 shadow-lg">
             <UserPlus size={24} className="text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">
+          <h1 className="text-4xl font-bold text-white mb-2">
             {currentStep === 1 ? 'Create Account' : 'Complete Your Profile'}
           </h1>
           <p className="text-cs-gray">
@@ -221,21 +221,27 @@ function SignupPage() {
             <span className="text-sm text-cs-gray">Step {currentStep} of {totalSteps}</span>
             <span className="text-sm text-cs-gray">{Math.round((currentStep / totalSteps) * 100)}%</span>
           </div>
-          <div className="w-full bg-gray-700 rounded-full h-2">
+          <div className="w-full bg-gray-700/50 rounded-full h-2">
             <div 
-              className="bg-gradient-to-r from-cs-red to-red-600 h-2 rounded-full transition-all duration-500"
+              className="bg-gradient-to-r from-cs-red to-cs-red-dark h-2 rounded-full transition-all duration-500"
               style={{ width: `${(currentStep / totalSteps) * 100}%` }}
             ></div>
           </div>
         </div>
 
         {/* Main Form */}
-        <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-2xl p-8 border border-gray-700 shadow-2xl">
+        <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-md border border-white/20 rounded-xl p-8 shadow-2xl">
           {/* Global Error Message */}
           {error && (
             <div className="flex items-center p-4 mb-6 bg-red-900/50 border border-red-700 text-red-300 rounded-lg">
               <AlertCircle size={20} className="mr-3 flex-shrink-0" />
               <span className="text-sm">{error}</span>
+              <button
+                onClick={() => setError('')}
+                className="ml-auto text-current opacity-70 hover:opacity-100"
+              >
+                <X size={16} />
+              </button>
             </div>
           )}
 
@@ -245,8 +251,8 @@ function SignupPage() {
               <div className="space-y-6">
                 {/* Email Field */}
                 <div>
-                  <label className="flex items-center text-sm font-semibold text-cs-gray mb-2">
-                    <Mail size={16} className="mr-2" />
+                  <label className="flex items-center text-sm font-semibold text-white mb-3">
+                    <Mail size={16} className="mr-2 text-cs-red" />
                     Email Address
                   </label>
                   <div className="relative">
@@ -255,7 +261,7 @@ function SignupPage() {
                       value={email}
                       onChange={handleEmailChange}
                       placeholder="Enter your email"
-                      className={`w-full pl-12 pr-4 py-4 text-white bg-gray-700 rounded-lg border transition-all duration-200 placeholder-gray-400 ${
+                      className={`w-full pl-12 pr-4 py-4 text-white bg-gray-950 rounded-lg border transition-all duration-200 placeholder-gray-400 ${
                         emailError 
                           ? 'border-red-500 focus:ring-red-500' 
                           : 'border-gray-600 focus:border-transparent focus:ring-2 focus:ring-cs-red'
@@ -273,8 +279,8 @@ function SignupPage() {
 
                 {/* Password Field */}
                 <div>
-                  <label className="flex items-center text-sm font-semibold text-cs-gray mb-2">
-                    <Lock size={16} className="mr-2" />
+                  <label className="flex items-center text-sm font-semibold text-white mb-3">
+                    <Lock size={16} className="mr-2 text-cs-red" />
                     Password
                   </label>
                   <div className="relative">
@@ -283,7 +289,7 @@ function SignupPage() {
                       value={password}
                       onChange={handlePasswordChange}
                       placeholder="Create a password"
-                      className={`w-full pl-12 pr-12 py-4 text-white bg-gray-700 rounded-lg border transition-all duration-200 placeholder-gray-400 ${
+                      className={`w-full pl-12 pr-12 py-4 text-white bg-gray-950 rounded-lg border transition-all duration-200 placeholder-gray-400 ${
                         passwordError 
                           ? 'border-red-500 focus:ring-red-500' 
                           : 'border-gray-600 focus:border-transparent focus:ring-2 focus:ring-cs-red'
@@ -308,8 +314,8 @@ function SignupPage() {
 
                 {/* Confirm Password Field */}
                 <div>
-                  <label className="flex items-center text-sm font-semibold text-cs-gray mb-2">
-                    <Lock size={16} className="mr-2" />
+                  <label className="flex items-center text-sm font-semibold text-white mb-3">
+                    <Lock size={16} className="mr-2 text-cs-red" />
                     Confirm Password
                   </label>
                   <div className="relative">
@@ -318,7 +324,7 @@ function SignupPage() {
                       value={confirmPassword}
                       onChange={handleConfirmPasswordChange}
                       placeholder="Confirm your password"
-                      className={`w-full pl-12 pr-12 py-4 text-white bg-gray-700 rounded-lg border transition-all duration-200 placeholder-gray-400 ${
+                      className={`w-full pl-12 pr-12 py-4 text-white bg-gray-950 rounded-lg border transition-all duration-200 placeholder-gray-400 ${
                         confirmPasswordError 
                           ? 'border-red-500 focus:ring-red-500' 
                           : password && confirmPassword && password === confirmPassword
@@ -352,7 +358,7 @@ function SignupPage() {
             {currentStep === 2 && (
               <div className="space-y-6">
                 <div className="text-center mb-6">
-                  <div className="w-20 h-20 bg-gradient-to-r from-cs-red to-red-600 rounded-full flex items-center justify-center text-white text-2xl font-bold mx-auto mb-4">
+                  <div className="w-20 h-20 bg-gradient-to-r from-cs-red to-cs-red-dark rounded-full flex items-center justify-center text-white text-2xl font-bold mx-auto mb-4">
                     {displayName ? displayName.charAt(0).toUpperCase() : email.charAt(0).toUpperCase()}
                   </div>
                   <p className="text-sm text-cs-gray">Preview of your profile</p>
@@ -360,8 +366,8 @@ function SignupPage() {
 
                 {/* Display Name Field */}
                 <div>
-                  <label className="flex items-center text-sm font-semibold text-cs-gray mb-2">
-                    <User size={16} className="mr-2" />
+                  <label className="flex items-center text-sm font-semibold text-white mb-3">
+                    <User size={16} className="mr-2 text-cs-red" />
                     Display Name
                     <span className="text-xs text-cs-gray/70 ml-2">(optional)</span>
                   </label>
@@ -371,7 +377,7 @@ function SignupPage() {
                       value={displayName}
                       onChange={handleDisplayNameChange}
                       placeholder="How should we call you?"
-                      className={`w-full pl-12 pr-4 py-4 text-white bg-gray-700 rounded-lg border transition-all duration-200 placeholder-gray-400 ${
+                      className={`w-full pl-12 pr-4 py-4 text-white bg-gray-950 rounded-lg border transition-all duration-200 placeholder-gray-400 ${
                         displayNameError 
                           ? 'border-red-500 focus:ring-red-500' 
                           : 'border-gray-600 focus:border-transparent focus:ring-2 focus:ring-cs-red'
@@ -392,8 +398,8 @@ function SignupPage() {
 
                 {/* Bio Field */}
                 <div>
-                  <label className="flex items-center text-sm font-semibold text-cs-gray mb-2">
-                    <Edit3 size={16} className="mr-2" />
+                  <label className="flex items-center text-sm font-semibold text-white mb-3">
+                    <Edit3 size={16} className="mr-2 text-cs-red" />
                     Bio
                     <span className="text-xs text-cs-gray/70 ml-2">(optional)</span>
                   </label>
@@ -402,7 +408,8 @@ function SignupPage() {
                     onChange={(e) => setBio(e.target.value)}
                     rows="4"
                     placeholder="Tell us a bit about yourself..."
-                    className="w-full p-4 text-white bg-gray-700 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-cs-red focus:border-transparent transition-all duration-200 placeholder-gray-400 resize-none"
+                    className="w-full p-4 text-white bg-gray-950 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-cs-red focus:border-transparent transition-all duration-200 placeholder-gray-400 resize-none"
+                    maxLength="500"
                   />
                   <p className="text-xs text-cs-gray mt-2">
                     {bio.length}/500 characters
@@ -417,7 +424,7 @@ function SignupPage() {
                 <button
                   type="button"
                   onClick={handlePrevStep}
-                  className="flex items-center px-6 py-3 text-cs-gray bg-gray-700 rounded-lg hover:bg-gray-600 transition-colors"
+                  className="flex items-center px-6 py-3 text-cs-gray bg-gray-700/50 rounded-lg hover:bg-gray-600 transition-colors"
                 >
                   <ArrowLeft size={20} className="mr-2" />
                   Back
@@ -459,18 +466,18 @@ function SignupPage() {
           {currentStep === 1 && (
             <>
               <div className="flex items-center my-6">
-                <div className="flex-1 border-t border-gray-600"></div>
+                <div className="flex-1 border-t border-gray-500"></div>
                 <span className="px-4 text-sm text-cs-gray">or</span>
-                <div className="flex-1 border-t border-gray-600"></div>
+                <div className="flex-1 border-t border-gray-500"></div>
               </div>
 
               {/* Social Login Options */}
               <div className="space-y-3">
-                <button className="w-full flex items-center justify-center py-3 px-4 bg-gray-700 text-white rounded-lg border border-gray-600 hover:bg-gray-600 transition-colors">
+                <button className="w-full flex items-center justify-center py-3 px-4 bg-gray-950 text-white rounded-lg border border-gray-600 hover:border-cs-red hover:bg-gray-800 transition-all duration-200">
                   <Chrome size={20} className="mr-3" />
                   Sign up with Google
                 </button>
-                <button className="w-full flex items-center justify-center py-3 px-4 bg-gray-700 text-white rounded-lg border border-gray-600 hover:bg-gray-600 transition-colors">
+                <button className="w-full flex items-center justify-center py-3 px-4 bg-gray-950 text-white rounded-lg border border-gray-600 hover:border-cs-red hover:bg-gray-800 transition-all duration-200">
                   <Github size={20} className="mr-3" />
                   Sign up with GitHub
                 </button>
@@ -483,7 +490,7 @@ function SignupPage() {
             Already have an account?{' '}
             <Link 
               to="/login" 
-              className="text-cs-red hover:text-red-400 font-semibold transition-colors"
+              className="text-cs-red hover:text-white font-semibold transition-colors"
             >
               Sign In
             </Link>
@@ -491,7 +498,7 @@ function SignupPage() {
         </div>
       </div>
     </div>
-  );
+  )
 }
 
 export default SignupPage;

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { Link } from 'react-router-dom';
 import { 
   Plus, 
   Github, 
@@ -175,7 +176,7 @@ function DashboardPage() {
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'created': return 'bg-blue-500';
+      case 'created': return 'bg-gray-500';
       case 'analyzing': return 'bg-yellow-500';
       case 'completed': return 'bg-green-500';
       case 'error': return 'bg-red-500';
@@ -190,10 +191,38 @@ function DashboardPage() {
     return matchesSearch && matchesFilter;
   });
 
+  const handleAnalyzeProject = async (projectId) => {
+    setMessage('');
+    try {
+        const token = await currentUser.getIdToken();
+        // Update the project status optimistically in the UI
+        setProjects(prevProjects => 
+            prevProjects.map(p => p.id === projectId ? { ...p, status: 'analyzing' } : p)
+        );
+
+        const response = await axios.post(`http://127.0.0.1:8000/api/projects/${projectId}/analyze`, 
+            {}, // Empty body for this request
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
+        
+        setMessage(response.data.message);
+        setMessageType('success');
+        
+        // Refresh the project list to get the final status from the backend
+        fetchProjects();
+
+    } catch (error) {
+        console.error("Error starting analysis", error);
+        setMessage(`Error: ${error.response?.data?.detail || error.message}`);
+        setMessageType('error');
+        // Revert status on error
+        fetchProjects();
+      }
+    };
+
   return (
     <div className="container mx-auto p-6 max-w-7xl">
       {/* Header Section */}
-
 
       {/* Global Message Display */}
       {message && (
@@ -218,7 +247,7 @@ function DashboardPage() {
       )}
 
       {/* Project Creation Form */}
-      <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-8 border border-gray-700 mb-8">
+      <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-md border border-white/20 rounded-xl p-6 mb-8">
         <div className="flex items-center mb-6">
           <Plus size={24} className="text-cs-red mr-3" />
           <h2 className="text-2xl font-bold text-white">Create a New Project</h2>
@@ -232,7 +261,7 @@ function DashboardPage() {
               value={githubUrl}
               onChange={(e) => setGithubUrl(e.target.value)}
               placeholder="https://github.com/user/repo"
-              className="w-full pl-12 pr-4 py-4 text-white bg-gray-700 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-cs-red focus:border-transparent transition-all duration-200 placeholder-gray-400"
+              className="w-full pl-12 pr-4 py-4 text-white bg-gray-950 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-cs-red focus:border-transparent transition-all duration-200 placeholder-gray-400"
               required
             />
           </div>
@@ -261,9 +290,9 @@ function DashboardPage() {
       </div>
 
       {/* Projects Section */}
-      <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+      <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-md border border-white/20 rounded-xl overflow-hidden">
         {/* Projects Header */}
-        <div className="p-6 border-b border-gray-700">
+        <div className="p-6 border-b border-gray-500">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center">
               <GitBranch size={24} className="text-cs-red mr-3" />
@@ -283,7 +312,7 @@ function DashboardPage() {
                     placeholder="Search projects..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 pr-4 py-2 text-white bg-gray-700 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-cs-red focus:border-transparent text-sm"
+                    className="pl-10 pr-4 py-2 text-white bg-gray-950 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-cs-red focus:border-transparent text-sm"
                   />
                 </div>
                 
@@ -293,7 +322,7 @@ function DashboardPage() {
                   <select
                     value={filterStatus}
                     onChange={(e) => setFilterStatus(e.target.value)}
-                    className="pl-10 pr-8 py-2 text-white bg-gray-700 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-cs-red focus:border-transparent text-sm appearance-none"
+                    className="pl-10 pr-8 py-2 text-white bg-gray-950 rounded-lg border border-gray-600 focus:outline-none focus:ring-2 focus:ring-cs-red focus:border-transparent text-sm appearance-none"
                   >
                     <option value="all">All Status</option>
                     <option value="created">Created</option>
@@ -334,58 +363,68 @@ function DashboardPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredProjects.map((project) => (
-                <div key={project.id} className="bg-gradient-to-br from-gray-700 to-gray-800 rounded-xl p-6 border border-gray-600 hover:border-cs-red transition-all duration-200 group">
-                  {/* Project Header */}
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1 min-w-0">
-                      {editingProject === project.id ? (
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            value={newProjectName}
-                            onChange={(e) => setNewProjectName(e.target.value)}
-                            className="flex-1 px-3 py-1 text-white bg-gray-600 rounded border border-gray-500 focus:outline-none focus:ring-2 focus:ring-cs-red text-lg font-bold"
-                            autoFocus
-                          />
-                          <button
-                            onClick={() => handleUpdateProject(project.id)}
-                            className="p-1 text-green-400 hover:text-green-300"
-                          >
-                            <Check size={16} />
-                          </button>
-                          <button
-                            onClick={cancelEdit}
-                            className="p-1 text-gray-400 hover:text-gray-300"
-                          >
-                            <X size={16} />
-                          </button>
+                <div key={project.id} className="bg-gray-950 rounded-xl p-6 border border-gray-600 hover:border-cs-red transition-all duration-200 group">
+                  {/* Project Header - Clickable area for navigation */}
+                  <Link to={`/projects/${project.id}`} className="block">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex-1 min-w-0">
+                        {editingProject === project.id ? (
+                          <div className="flex items-center gap-2" onClick={(e) => e.preventDefault()}>
+                            <input
+                              type="text"
+                              value={newProjectName}
+                              onChange={(e) => setNewProjectName(e.target.value)}
+                              className="flex-1 px-3 py-1 text-white bg-gray-700 rounded border border-gray-500 focus:outline-none focus:ring-2 focus:ring-cs-red text-lg font-bold"
+                              autoFocus
+                            />
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault();
+                                handleUpdateProject(project.id);
+                              }}
+                              className="p-1 text-green-400 hover:text-green-300"
+                            >
+                              <Check size={16} />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault();
+                                cancelEdit();
+                              }}
+                              className="p-1 text-gray-400 hover:text-gray-300"
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        ) : (
+                          <h3 className="text-xl font-bold text-white truncate group-hover:text-cs-red transition-colors">
+                            {project.name}
+                          </h3>
+                        )}
+                        
+                        <div className="flex items-center mt-2 text-sm text-cs-gray">
+                          <Github size={14} className="mr-2" />
+                          <span className="truncate">{getGithubOwnerRepo(project.github_url)}</span>
                         </div>
-                      ) : (
-                        <h3 className="text-xl font-bold text-white truncate group-hover:text-cs-red transition-colors">
-                          {project.name}
-                        </h3>
-                      )}
-                      
-                      <div className="flex items-center mt-2 text-sm text-cs-gray">
-                        <Github size={14} className="mr-2" />
-                        <span className="truncate">{getGithubOwnerRepo(project.github_url)}</span>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Project Meta */}
-                  <div className="flex items-center text-xs text-cs-gray mb-4">
-                    <Calendar size={12} className="mr-1" />
-                    Created {formatDate(project.created_at)}
-                  </div>
+                    {/* Project Meta */}
+                    <div className="flex items-center text-xs text-cs-gray mb-4">
+                      <Calendar size={12} className="mr-1" />
+                      Created {formatDate(project.created_at)}
+                    </div>
+                  </Link>
 
-                  {/* Project Actions */}
+                  {/* Project Actions - Not wrapped in Link */}
                   <div className="flex items-center justify-between pt-4 border-t border-gray-600">
-                    <button className="flex items-center px-4 py-2 bg-cs-red text-white rounded-lg hover:bg-cs-red-dark transition-colors text-sm font-medium">
-                      <Play size={14} className="mr-2" />
-                      Analyze
+                    <button
+                        onClick={() => handleAnalyzeProject(project.id)}
+                        className="flex items-center px-4 py-2 bg-cs-red text-white rounded-lg hover:bg-cs-red-dark transition-colors text-sm font-medium"
+                    >
+                        <Play size={14} className="mr-2" />
+                        Analyze
                     </button>
-                                      {/* Status Badge */}
                     <div className="flex items-center ml-3">
                       <div className={`w-2 h-2 rounded-full ${getStatusColor(project.status)} mr-2`}></div>
                       <span className="text-xs text-cs-gray capitalize">{project.status}</span>

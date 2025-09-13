@@ -2,8 +2,8 @@ import React from 'react';
 
 function HeroSection() {
   return (
-    <section className="relative h-[calc(100vh-80px)] flex items-center justify-center text-center p-6 bg-cs-black overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-br from-cs-black to-gray-800 opacity-80 z-0"></div>
+    <section className="relative h-[calc(100vh-80px)] flex items-center justify-center text-center p-6">
+      <div className="absolute inset-0 opacity-80 z-0"></div>
       
       <div className="relative z-10 max-w-4xl mx-auto">
         <h1 className="text-5xl md:text-7xl font-extrabold text-white leading-tight mb-4 font-exo2">
