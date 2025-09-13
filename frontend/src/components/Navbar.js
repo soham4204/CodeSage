@@ -36,7 +36,7 @@ function Navbar() {
         <div className="hidden md:flex items-center space-x-4">
           {currentUser ? (
             <>
-              <span className="text-white">{currentUser.email}</span>
+              <Link to="/profile" className="text-white hover:underline">{currentUser.email}</Link> {/* Make email a link */}
               <button onClick={handleLogout} className="px-4 py-2 rounded-lg bg-cs-red text-white hover:bg-cs-red-dark">
                 Logout
               </button>

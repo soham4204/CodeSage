@@ -1,5 +1,4 @@
 // src/App.js
-import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import ProtectedRoute from './components/ProtectedRoute'; // Import ProtectedRoute
@@ -9,6 +8,7 @@ import PricingPage from './pages/PricingPage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import DashboardPage from './pages/DashboardPage'; // Import DashboardPage
+import ProfilePage from './pages/ProfilePage';
 
 function App() {
   return (
@@ -23,14 +23,8 @@ function App() {
         <Route path="/signup" element={<SignupPage />} />
 
         {/* Protected Route */}
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <DashboardPage />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>}/>
+        <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>}/>
       </Routes>
     </div>
   );
