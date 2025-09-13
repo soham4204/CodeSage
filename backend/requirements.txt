@@ -1,0 +1,9 @@
+fastapi
+firebase-admin
+python-dotenv
+langchain 
+transformers 
+sentence-transformers 
+faiss-cpu 
+tree-sitter 
+pygments
