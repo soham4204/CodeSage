@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { 
@@ -14,11 +14,11 @@ import {
     ChevronUp,
     Folder,
     Activity,
-    Zap,
     RefreshCw,
     AlertCircle,
     ArrowLeft,
-    X
+    X,
+    Sparkles
 } from 'lucide-react';
 import axios from 'axios';
 
@@ -31,8 +31,40 @@ function ProjectAnalysisPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedLanguage, setSelectedLanguage] = useState('');
     const [expandedFiles, setExpandedFiles] = useState({});
+    const [generatingDoc, setGeneratingDoc] = useState(null);
+    const [generatedDocs, setGeneratedDocs] = useState({});
+
+    // --- ✅ New Function to Handle AI Doc Generation ---
+    const handleGenerateDoc = async (construct, file) => {
+        const constructId = `${file.file_path}-${construct.name}`;
+        setGeneratingDoc(constructId);
+        try {
+            const token = await currentUser.getIdToken();
+            const response = await axios.post('http://127.0.0.1:8000/api/generate-doc', 
+                { 
+                    code_snippet: construct.code_snippet,
+                    language: file.language 
+                },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            setGeneratedDocs(prev => ({
+                ...prev,
+                [constructId]: response.data.documentation
+            }));
+        } catch (error) {
+            console.error("Error generating documentation", error);
+            // Optionally, set an error state for this specific construct
+            setGeneratedDocs(prev => ({
+                ...prev,
+                [constructId]: "Error: Could not generate documentation."
+            }));
+        } finally {
+            setGeneratingDoc(null);
+        }
+    };
 
     const fetchAnalysis = useCallback(async () => {
+        // This function remains the same as your version
         if (!currentUser) return;
         try {
             const token = await currentUser.getIdToken();
@@ -60,6 +92,7 @@ function ProjectAnalysisPage() {
     };
 
     const filteredFiles = analysis?.files.filter(file => {
+        // This filtering logic remains the same
         const matchesSearch = file.file_path.toLowerCase().includes(searchTerm.toLowerCase()) ||
             file.constructs.some(construct => construct.name.toLowerCase().includes(searchTerm.toLowerCase()));
         const matchesLanguage = !selectedLanguage || file.language === selectedLanguage;
@@ -67,10 +100,10 @@ function ProjectAnalysisPage() {
     }) || [];
 
     const getConstructIcon = (type) => {
+        // This function remains the same
         switch (type) {
             case 'function': return <Hash size={14} className="text-green-400" />;
             case 'class': return <Type size={14} className="text-blue-400" />;
-            case 'variable': return <Zap size={14} className="text-yellow-400" />;
             default: return <Code size={14} className="text-gray-400" />;
         }
     };
@@ -329,26 +362,54 @@ function ProjectAnalysisPage() {
                                                         <div className="border-t border-gray-600 bg-gray-800/30 p-6">
                                                             {file.constructs.length > 0 ? (
                                                                 <div className="grid gap-3">
-                                                                    {file.constructs.map((construct, cIndex) => (
-                                                                        <div key={cIndex} className="flex items-center justify-between bg-gray-950/50 rounded-lg p-4 hover:bg-gray-800/50 transition-colors">
-                                                                            <div className="flex items-center space-x-3">
-                                                                                <div className="flex items-center justify-center w-8 h-8 bg-gray-700/50 rounded-lg">
-                                                                                    {getConstructIcon(construct.type)}
-                                                                                </div>
-                                                                                <div>
-                                                                                    <span className="text-white font-medium">{construct.name}</span>
-                                                                                    <div className="flex items-center space-x-3 mt-1">
-                                                                                        <span className="capitalize bg-cs-red/20 text-cs-red px-2 py-1 rounded text-xs font-medium">
-                                                                                            {construct.type}
-                                                                                        </span>
-                                                                                        <span className="text-xs text-cs-gray">
-                                                                                            Line {construct.line}
-                                                                                        </span>
+                                                                    {file.constructs.map((construct, cIndex) => {
+                                                                    const constructId = `${file.file_path}-${construct.name}`;
+                                                                    const isGenerating = generatingDoc === constructId;
+                                                                    const doc = generatedDocs[constructId];
+                                                                    const hasSnippet = construct.code_snippet;
+
+                                                                    return (
+                                                                        <div key={cIndex} className="bg-gray-950/50 rounded-lg p-4">
+                                                                            <div className="flex items-center justify-between">
+                                                                                <div className="flex items-center space-x-3">
+                                                                                    <div className="flex items-center justify-center w-8 h-8 bg-gray-700/50 rounded-lg">
+                                                                                        {getConstructIcon(construct.type)}
+                                                                                    </div>
+                                                                                    <div>
+                                                                                        <span className="text-white font-medium">{construct.name}</span>
                                                                                     </div>
                                                                                 </div>
+                                                                                {hasSnippet && (
+                                                                                    <button
+                                                                                        onClick={() => handleGenerateDoc(construct, file)}
+                                                                                        disabled={isGenerating}
+                                                                                        className="flex items-center px-3 py-1 bg-gray-700 text-white rounded-md hover:bg-gray-600 transition-colors text-xs font-medium disabled:cursor-not-allowed disabled:bg-gray-500"
+                                                                                    >
+                                                                                        {isGenerating ? (
+                                                                                            <>
+                                                                                                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-2"></div>
+                                                                                                Generating...
+                                                                                            </>
+                                                                                        ) : (
+                                                                                            <>
+                                                                                                <Sparkles size={12} className="mr-2 text-yellow-400" />
+                                                                                                Generate Doc
+                                                                                            </>
+                                                                                        )}
+                                                                                    </button>
+                                                                                )}
                                                                             </div>
+
+                                                                            {/* Generated Doc Display */}
+                                                                            {doc && (
+                                                                                <div className="mt-4 p-4 bg-black/30 rounded-md border border-gray-600">
+                                                                                    <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono">{doc}</pre>
+                                                                                </div>
+                                                                            )}
                                                                         </div>
-                                                                    ))}
+                                                                    );
+                                                                })}
+
                                                                 </div>
                                                             ) : (
                                                                 <div className="text-center py-6">

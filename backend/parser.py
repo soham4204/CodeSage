@@ -1,4 +1,3 @@
-# backend/parser.py
 import os
 import ast
 from pygments import lex
@@ -20,13 +19,15 @@ def parse_python_file(file_path):
             constructs.append({
                 'name': node.name,
                 'type': 'function',
-                'line': node.lineno
+                'line': node.lineno,
+                'code_snippet': ast.get_source_segment(code, node) # ✅ ADDED: Get the full source of the function
             })
         elif isinstance(node, ast.ClassDef):
             constructs.append({
                 'name': node.name,
                 'type': 'class',
-                'line': node.lineno
+                'line': node.lineno,
+                'code_snippet': ast.get_source_segment(code, node) # ✅ ADDED: Get the full source of the class
             })
             
     return constructs
@@ -34,6 +35,8 @@ def parse_python_file(file_path):
 def parse_javascript_file(file_path):
     """
     Parses a JavaScript file using the Pygments lexer with improved logic.
+    NOTE: Reliably extracting full function bodies with a lexer is very complex.
+    This feature is currently focused on Python.
     """
     with open(file_path, 'r', encoding='utf-8', errors='ignore') as file:
         code = file.read()
@@ -47,33 +50,30 @@ def parse_javascript_file(file_path):
         
         # Detects: `function MyComponent()` or `class MyClass`
         if token_type in Token.Keyword and token_value in ['function', 'class']:
-            # Find the next token that is a Name
             for j in range(i + 1, len(tokens)):
                 next_token_type, next_token_value = tokens[j]
                 if next_token_type in Name:
                     constructs.append({
                         'name': next_token_value,
                         'type': 'function' if token_value == 'function' else 'class',
-                        'line': -1 
+                        'line': -1,
+                        'code_snippet': None # ✅ ADDED: Snippet not available for JS with this method
                     })
                     break
         
         # Detects: `const MyComponent = () => ...`
         if token_type is Token.Keyword.Declaration and token_value in ['const', 'let']:
-            # Look ahead for the pattern: Name then = then ( or async
             if i + 3 < len(tokens):
                 name_token = tokens[i+2]
                 equals_token = tokens[i+4]
-                
-                # Check for `const Name = (` pattern for arrow functions
                 if name_token[0] in Name and equals_token[1] == '=':
                     constructs.append({
                         'name': name_token[1],
                         'type': 'function',
-                        'line': -1
+                        'line': -1,
+                        'code_snippet': None # ✅ ADDED: Snippet not available for JS with this method
                     })
 
-    # Remove duplicates that might arise from multiple detection methods
     unique_constructs = [dict(t) for t in {tuple(d.items()) for d in constructs}]
     return unique_constructs
 

@@ -9,15 +9,25 @@ from pydantic import BaseModel
 from auth import get_current_user
 import git
 import tempfile 
-import shutil
 import os
 from parser import parse_code_file
+from groq import Groq
+from dotenv import load_dotenv
+
+load_dotenv()
 
 if not firebase_admin._apps:
     cred = credentials.Certificate("serviceAccountKey.json")
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
+
+# 🔑 Ensure key is present
+groq_api_key = os.environ.get("GROQ_API_KEY")
+if not groq_api_key:
+    raise RuntimeError("❌ GROQ_API_KEY is not set. Please add it to your .env file.")
+
+groq_client = Groq(api_key=groq_api_key)
 
 class ProjectCreate(BaseModel):
     github_url: str
@@ -26,6 +36,9 @@ class ProjectUpdate(BaseModel):
 class UserProfile(BaseModel):
     displayName: str
     bio: str
+class DocGenRequest(BaseModel):
+    code_snippet: str
+    language: str
 
 app = FastAPI()
 
@@ -248,5 +261,52 @@ def get_project_analysis(project_id: str, user: dict = Depends(get_current_user)
 
     return analysis_data
 
+@app.post("/api/generate-doc")
+def generate_documentation(request: DocGenRequest, user: dict = Depends(get_current_user)):
+    if not request.code_snippet:
+        raise HTTPException(status_code=400, detail="Code snippet cannot be empty.")
+
+    prompt = f"""
+    You are an expert programmer writing technical documentation.
+    Based on the following {request.language} code, write a concise and clear docstring.
+
+    The documentation should explain:
+    1. What the code does.
+    2. Its parameters (if any).
+    3. What it returns (if any).
+
+    Format the output as a professional docstring appropriate for the language. 
+    Do not include the original code in your response.
+
+    Code:
+    ```{request.language}
+    {request.code_snippet}
+    ```
+    """
+
+    try:
+        chat_completion = groq_client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.1-8b-instant",  # ✅ Updated to supported model
+        )
+
+        # ✅ Handle both possible formats
+        choice = chat_completion.choices[0].message
+        if isinstance(choice.content, list):  
+            # Newer SDK: extract text from list
+            generated_doc = "".join(
+                block.get("text", "") for block in choice.content if block.get("type") == "text"
+            )
+        else:
+            # Older SDK: content is already a string
+            generated_doc = choice.content
+
+        return {"documentation": generated_doc.strip()}
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()  # 🔍 print full stacktrace in backend logs
+        raise HTTPException(status_code=500, detail=f"Failed to communicate with AI model: {str(e)}")
+    
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
