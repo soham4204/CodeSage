@@ -22,12 +22,12 @@ function DashboardPage() {
   const { currentUser } = useAuth();
   const [githubUrl, setGithubUrl] = useState('');
   const [message, setMessage] = useState('');
-  const [messageType, setMessageType] = useState(''); // 'success' or 'error'
+  const [messageType, setMessageType] = useState('');
   const [projects, setProjects] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all'); // 'all', 'created', 'analyzing', 'completed'
+  const [filterStatus, setFilterStatus] = useState('all');
   const [deletingProject, setDeletingProject] = useState(null);
   const [editingProject, setEditingProject] = useState(null);
   const [newProjectName, setNewProjectName] = useState('');
@@ -177,6 +177,7 @@ function DashboardPage() {
   const getStatusColor = (status) => {
     switch (status) {
       case 'created': return 'bg-gray-500';
+      case 'queued': return 'bg-blue-500';
       case 'analyzing': return 'bg-yellow-500';
       case 'completed': return 'bg-green-500';
       case 'error': return 'bg-red-500';
@@ -194,31 +195,56 @@ function DashboardPage() {
   const handleAnalyzeProject = async (projectId) => {
     setMessage('');
     try {
-        const token = await currentUser.getIdToken();
-        // Update the project status optimistically in the UI
-        setProjects(prevProjects => 
-            prevProjects.map(p => p.id === projectId ? { ...p, status: 'analyzing' } : p)
-        );
-
-        const response = await axios.post(`http://127.0.0.1:8000/api/projects/${projectId}/analyze`, 
-            {}, // Empty body for this request
-            { headers: { Authorization: `Bearer ${token}` } }
-        );
-        
-        setMessage(response.data.message);
-        setMessageType('success');
-        
-        // Refresh the project list to get the final status from the backend
-        fetchProjects();
+      const token = await currentUser.getIdToken();
+      
+      const response = await axios.post(`http://127.0.0.1:8000/api/projects/${projectId}/analyze`, 
+        {}, 
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      setMessage(response.data.message);
+      setMessageType('success');
+      
+      // Poll for status updates every 2 seconds
+      const pollForStatus = async () => {
+        try {
+          const statusResponse = await axios.get(`http://127.0.0.1:8000/api/projects/${projectId}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          
+          const currentStatus = statusResponse.data.status;
+          
+          // Update the specific project in state
+          setProjects(prevProjects => 
+            prevProjects.map(p => 
+              p.id === projectId ? { ...p, status: currentStatus } : p
+            )
+          );
+          
+          // If analysis is complete or failed, stop polling
+          if (currentStatus === 'completed' || currentStatus === 'error') {
+            return;
+          }
+          
+          // Continue polling
+          setTimeout(pollForStatus, 2000);
+        } catch (pollError) {
+          console.error("Error polling project status:", pollError);
+          // Fallback to full refresh
+          fetchProjects();
+        }
+      };
+      
+      // Start polling after a short delay
+      setTimeout(pollForStatus, 1000);
 
     } catch (error) {
-        console.error("Error starting analysis", error);
-        setMessage(`Error: ${error.response?.data?.detail || error.message}`);
-        setMessageType('error');
-        // Revert status on error
-        fetchProjects();
-      }
-    };
+      console.error("Error starting analysis", error);
+      setMessage(`Error: ${error.response?.data?.detail || error.message}`);
+      setMessageType('error');
+      fetchProjects();
+    }
+  };
 
   return (
     <div className="container mx-auto p-6 max-w-7xl">

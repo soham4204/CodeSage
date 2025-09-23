@@ -1,7 +1,7 @@
 # main.py
 import uvicorn
 from datetime import datetime
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -31,23 +31,22 @@ groq_client = Groq(api_key=groq_api_key)
 
 class ProjectCreate(BaseModel):
     github_url: str
+    
 class ProjectUpdate(BaseModel):
     name: str
+    
 class UserProfile(BaseModel):
     displayName: str
     bio: str
-class DocGenRequest(BaseModel):
-    code_snippet: str
-    language: str
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"], # Must match your frontend URL
+    allow_origins=["http://localhost:3000"],
     allow_credentials=True,
-    allow_methods=["*"], # Allows POST, GET, OPTIONS, etc.
-    allow_headers=["*"], # Allows headers like 'Authorization'
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 @app.get("/")
@@ -60,9 +59,6 @@ def read_current_user(user: dict = Depends(get_current_user)):
 
 @app.get("/api/profile")
 def get_profile(user: dict = Depends(get_current_user)):
-    """
-    Fetch the current user's profile.
-    """
     uid = user.get("uid")
     profile_ref = db.collection("profiles").document(uid)
     profile_doc = profile_ref.get()
@@ -70,13 +66,10 @@ def get_profile(user: dict = Depends(get_current_user)):
     if profile_doc.exists:
         return profile_doc.to_dict()
     else:
-        return {"displayName": "", "bio": ""}  # Default if profile doesn't exist
+        return {"displayName": "", "bio": ""}
 
 @app.post("/api/profile")
 def update_profile(profile: UserProfile, user: dict = Depends(get_current_user)):
-    """
-    Create or update the current user's profile.
-    """
     uid = user.get("uid")
     profile_ref = db.collection("profiles").document(uid)
 
@@ -86,13 +79,16 @@ def update_profile(profile: UserProfile, user: dict = Depends(get_current_user))
         "updated_at": datetime.utcnow()
     }
 
-    profile_ref.set(profile_data, merge=True)  # merge=True means update if exists
+    profile_ref.set(profile_data, merge=True)
     return {"message": "Profile updated successfully!"}
 
 @app.post("/api/projects")
 def create_project(project_data: ProjectCreate, user: dict = Depends(get_current_user)):
     owner_uid = user.get("uid")
     project_name = project_data.github_url.split("/")[-1]
+    if project_name.endswith('.git'):
+        project_name = project_name[:-4]  # Remove .git extension
+        
     new_project = {
         "name": project_name,
         "github_url": project_data.github_url,
@@ -122,9 +118,6 @@ def get_projects(user: dict = Depends(get_current_user)):
 
 @app.put("/api/projects/{project_id}")
 def update_project(project_id: str, project_data: ProjectUpdate, user: dict = Depends(get_current_user)):
-    """
-    Protected endpoint to update a project's name.
-    """
     owner_uid = user.get("uid")
     project_ref = db.collection('projects').document(project_id)
     project_doc = project_ref.get()
@@ -140,9 +133,6 @@ def update_project(project_id: str, project_data: ProjectUpdate, user: dict = De
 
 @app.delete("/api/projects/{project_id}")
 def delete_project(project_id: str, user: dict = Depends(get_current_user)):
-    """
-    Protected endpoint to delete a project.
-    """
     owner_uid = user.get("uid")
     project_ref = db.collection('projects').document(project_id)
     project_doc = project_ref.get()
@@ -156,11 +146,300 @@ def delete_project(project_id: str, user: dict = Depends(get_current_user)):
     project_ref.delete()
     return {"message": "Project deleted successfully"}
 
+def _generate_doc_for_snippet(code_snippet: str, language: str) -> str:
+    """Helper function to call the Groq API. (Internal use)"""
+    if not code_snippet or not code_snippet.strip():
+        return ""
+    
+    prompt = f"""
+    You are an expert programmer writing technical documentation. Based on the following {language} code, 
+    write a concise and clear docstring. The documentation should explain:
+    1. What the code does. 2. Its parameters. 3. What it returns.
+    Format the output as a professional docstring for the language. Do not include the original code.
+
+    Code:
+    ```{language}
+    {code_snippet}
+    ```
+    """
+    
+    try:
+        chat_completion = groq_client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.1-8b-instant",
+            temperature=0.3,
+            max_tokens=500
+        )
+        
+        # Handle response format
+        response = chat_completion.choices[0].message.content
+        return response.strip() if response else "Failed to generate documentation."
+        
+    except Exception as e:
+        print(f"Groq API call failed: {e}")
+        return "Failed to generate documentation."
+
+def _generate_class_summary(class_snippet: str, method_docs: list, language: str) -> str:
+    """
+    Generates a high-level summary for a class using its code and method documentation.
+    """
+    if not class_snippet or not class_snippet.strip():
+        return "No class code available for summary generation."
+
+    # Format the method documentation for the prompt
+    if method_docs and len(method_docs) > 0:
+        methods_summary = "\n".join(
+            f"- Method `{md.get('name', 'unknown')}` ({md.get('type', 'method')}): {md.get('documentation', 'No documentation available')}" 
+            for md in method_docs if md.get('name')
+        )
+    else:
+        methods_summary = "No methods found or documented for this class."
+
+    prompt = f"""
+    You are a senior technical writer summarizing a code library. Based on the following {language} class's source code 
+    and the AI-generated documentation for its individual methods, write a high-level summary. 
+
+    The summary should:
+    1. Explain the class's purpose and main responsibilities
+    2. Describe how the class fits into the broader codebase
+    3. Provide a simple code example of how to instantiate and use it
+    4. Keep it concise but informative (2-4 paragraphs max)
+
+    Do not repeat the method documentation verbatim; synthesize it into a coherent overview.
+
+    Class Source Code:
+    ```{language}
+    {class_snippet}
+    ```
+
+    Methods Documentation:
+    {methods_summary}
+    """
+    
+    try:
+        chat_completion = groq_client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.1-8b-instant",
+            temperature=0.3,
+            max_tokens=1000
+        )
+        
+        response = chat_completion.choices[0].message.content
+        
+        if not response or response.strip() == "":
+            return "Failed to generate class summary: Empty response from AI."
+            
+        return response.strip()
+        
+    except Exception as e:
+        print(f"Groq API call for class summary failed: {e}")
+        return f"Failed to generate class summary: {str(e)}"
+
+def _is_method_of_class(method_construct, class_construct):
+    """
+    Helper function to determine if a method belongs to a class.
+    """
+    # Check if method has explicit parent_class field
+    if method_construct.get("parent_class") == class_construct.get("name"):
+        return True
+    
+    # Check line number proximity (method should be within class boundaries)
+    method_line = method_construct.get("line", 0)
+    class_line = class_construct.get("line", 0)
+    
+    # Simple heuristic: method should be after class declaration
+    if method_line > class_line:
+        return True
+    
+    return False
+    
+def run_full_analysis(project_id: str, github_url: str):
+    """
+    FINAL VERSION: 
+    - Clones repo
+    - Parses code
+    - Generates construct docs
+    - Generates class summaries
+    - Generates a project README
+    - Stores results in Firestore
+    """
+    project_ref = db.collection('projects').document(project_id)
+    project_doc = project_ref.get().to_dict()
+    project_name = project_doc.get("name", "Unknown Project")
+
+    try:
+        project_ref.update({"status": "analyzing"})
+
+        analysis_results = []
+        project_stats = {"total_files": 0, "parsed_files": 0, "languages": set()}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            try:
+                print(f"Cloning {github_url} into {temp_dir}...")
+                git.Repo.clone_from(github_url, temp_dir)
+                print("✅ Successfully cloned.")
+
+                print("Starting code parsing with tree-sitter...")
+                for root, dirs, files in os.walk(temp_dir):
+                    # Skip unnecessary dirs
+                    dirs[:] = [d for d in dirs if d not in {".git", "node_modules", "build", "dist", "__pycache__", ".venv"}]
+
+                    for file in files:
+                        project_stats["total_files"] += 1
+                        file_path = os.path.join(root, file)
+
+                        try:
+                            parsed_data = parse_code_file(file_path)
+
+                            if parsed_data:
+                                # --- STAGE 1: Construct-level documentation ---
+                                for construct in parsed_data.get("constructs", []):
+                                    if construct.get("code_snippet"):
+                                        print(f"Generating doc for: {construct['name']} in {parsed_data['file_path']}")
+                                        docstring = _generate_doc_for_snippet(
+                                            construct["code_snippet"], parsed_data["language"]
+                                        )
+                                        construct["documentation"] = docstring
+
+                                analysis_results.append(parsed_data)
+                                project_stats["parsed_files"] += 1
+                                project_stats["languages"].add(parsed_data.get("language"))
+                                print(f"   ✅ Parsed {file_path}")
+                        except Exception as e:
+                            print(f"   ❌ Error parsing {file_path}: {e}")
+                            continue
+
+                project_stats["languages"] = list(project_stats["languages"])
+
+                # --- STAGE 2: Generate Class Summaries ---
+                print("Generating class summaries...")
+                class_summaries = {}
+
+                all_constructs = []
+                for file_data in analysis_results:
+                    print(f"Processing file: {file_data.get('file_path', 'unknown')}")
+                    constructs = file_data.get("constructs", [])
+                    print(f"  Found {len(constructs)} constructs")
+                    for construct in constructs:
+                        construct['file_path'] = file_data.get("file_path", "unknown")
+                        construct['language'] = file_data.get("language", "unknown")
+                        all_constructs.append(construct)
+                        print(f"  - {construct.get('type', 'unknown')}: {construct.get('name', 'unnamed')} (parent: {construct.get('parent_class', 'None')})")
+
+                unique_classes = {}
+                for construct in all_constructs:
+                    if construct.get("type") == "class":
+                        class_name = construct.get("name")
+                        if class_name and class_name not in unique_classes:
+                            unique_classes[class_name] = construct
+
+                print(f"Found {len(unique_classes)} unique classes: {list(unique_classes.keys())}")
+
+                for class_name, class_construct in unique_classes.items():
+                    print(f"Processing class: {class_name}")
+                    
+                    methods_for_class = []
+
+                    # Method 1: from parent_class field
+                    for construct in all_constructs:
+                        if (construct.get("type") in ["method", "function"] and 
+                            construct.get("parent_class") == class_name and
+                            construct.get("documentation")):
+                            methods_for_class.append({
+                                "name": construct.get("name"),
+                                "documentation": construct.get("documentation"),
+                                "type": construct.get("type")
+                            })
+                            print(f"  Found method via parent_class: {construct.get('name')}")
+
+                    # Method 2: from class.methods array
+                    if 'methods' in class_construct:
+                        class_methods = class_construct.get('methods', [])
+                        for method in class_methods:
+                            if method.get("documentation"):
+                                methods_for_class.append({
+                                    "name": method.get("name"),
+                                    "documentation": method.get("documentation"),
+                                    "type": method.get("type", "method")
+                                })
+                                print(f"  Found method via class.methods: {method.get('name')}")
+
+                    # Remove duplicates
+                    seen_methods = set()
+                    unique_methods = []
+                    for method in methods_for_class:
+                        method_key = method["name"]
+                        if method_key not in seen_methods:
+                            seen_methods.add(method_key)
+                            unique_methods.append(method)
+                    
+                    methods_for_class = unique_methods
+                    print(f"  Total unique methods for {class_name}: {len(methods_for_class)}")
+
+                    # Generate summary
+                    if class_construct.get("code_snippet"):
+                        try:
+                            summary = _generate_class_summary(
+                                class_construct["code_snippet"], 
+                                methods_for_class, 
+                                class_construct.get("language", "python")
+                            )
+                            if summary and not summary.startswith("Failed to generate"):
+                                class_summaries[class_name] = summary
+                                print(f"✅ Generated summary for class: {class_name}")
+                            else:
+                                print(f"❌ Failed to generate summary for class: {class_name}")
+                        except Exception as e:
+                            print(f"❌ Error generating summary for class {class_name}: {e}")
+                    else:
+                        print(f"❌ No code snippet for class: {class_name}")
+
+                print(f"✅ Generated {len(class_summaries)} class summaries total.")
+
+                # --- STAGE 3: Generate Project README ---
+                print("Generating project README...")
+                if class_summaries:
+                    readme_content = _generate_project_readme(project_name, project_stats, class_summaries)
+                    print("✅ README generated.")
+                else:
+                    print("No class summaries available to generate README.")
+                    readme_content = f"# {project_name}\n\nNo classes were found to generate a detailed README."
+
+                # --- STAGE 4: Store results in Firestore ---
+                analysis_data = {
+                    "files": analysis_results,
+                    "class_summaries": class_summaries,
+                    "readme_content": readme_content,
+                    "stats": project_stats,
+                    "analyzed_at": datetime.utcnow()
+                }
+
+                analysis_ref = db.collection('projects').document(project_id).collection('analysis').document('latest')
+                analysis_ref.set(analysis_data)
+
+                project_ref.update({
+                    "status": "completed",
+                    "last_analyzed": datetime.utcnow()
+                })
+
+                print(f"✅ Analysis complete for project {project_id}")
+
+            except git.exc.GitCommandError as e:
+                print(f"❌ Git clone failed: {e}")
+                project_ref.update({"status": "failed", "error": f"Failed to clone repository: {str(e)}"})
+            except Exception as e:
+                print(f"❌ Analysis failed: {e}")
+                project_ref.update({"status": "failed", "error": str(e)})
+
+    except Exception as e:
+        print(f"❌ Critical error in analysis: {e}")
+        project_ref.update({"status": "failed", "error": str(e)})
+
 @app.post("/api/projects/{project_id}/analyze")
-def analyze_project(project_id: str, user: dict = Depends(get_current_user)):
+def analyze_project(project_id: str, background_tasks: BackgroundTasks, user: dict = Depends(get_current_user)):
     """
     Protected endpoint to trigger the analysis of a project.
-    This clones the repo, parses code files, and stores analysis results.
+    Now runs asynchronously in the background.
     """
     owner_uid = user.get("uid")
     project_ref = db.collection('projects').document(project_id)
@@ -173,64 +452,145 @@ def analyze_project(project_id: str, user: dict = Depends(get_current_user)):
     if project_data.get('owner_uid') != owner_uid:
         raise HTTPException(status_code=403, detail="Not authorized for this project")
 
-    project_ref.update({"status": "analyzing"})
     github_url = project_data.get('github_url')
     
-    analysis_results = []
-    project_stats = { 'total_files': 0, 'parsed_files': 0, 'languages': set() }
+    # Update status immediately to give user feedback
+    project_ref.update({"status": "queued"})
     
-    with tempfile.TemporaryDirectory() as temp_dir:
-        try:
-            print(f"Cloning {github_url} into {temp_dir}...")
-            git.Repo.clone_from(github_url, temp_dir)
-            print("✅ Successfully cloned.")
+    # Add the long-running task to be executed in the background
+    background_tasks.add_task(run_full_analysis, project_id, github_url)
+    
+    return {"message": f"Full analysis for '{project_data.get('name')}' has started."}
 
-            print("Starting code parsing with tree-sitter...")
-            for root, dirs, files in os.walk(temp_dir):
-                dirs[:] = [d for d in dirs if d not in {'.git', 'node_modules', 'build', 'dist'}]
+def _generate_project_readme(project_name: str, stats: dict, class_summaries: dict) -> str:
+    """
+    Generates a README.md for the project using overall stats and class summaries.
+    Enhanced with better error handling and fallback content.
+    """
+    print(f"Generating README for {project_name}")
+    print(f"Stats: {stats}")
+    print(f"Class summaries count: {len(class_summaries) if class_summaries else 0}")
+    
+    # Create a basic README even if no class summaries exist
+    if not class_summaries:
+        basic_readme = f"""# {project_name}
+
+        ## Project Overview
+        This project contains {stats.get('total_files', 0)} files, with {stats.get('parsed_files', 0)} successfully parsed files.
+
+        ## Tech Stack
+        - **Languages**: {', '.join(stats.get('languages', ['Unknown']))}
+        - **Files Analyzed**: {stats.get('parsed_files', 0)} out of {stats.get('total_files', 0)}
+
+        ## Project Structure
+        The codebase contains various functions and components. Detailed class documentation was not available during analysis.
+
+        ## Getting Started
+        1. Clone the repository
+        2. Install dependencies
+        3. Follow language-specific setup instructions
+        """
+        return basic_readme
+
+    # Format the class summaries for the prompt
+    summaries_text = ""
+    for class_name, summary in class_summaries.items():
+        summaries_text += f"\n\n**Class: {class_name}**\n{summary}\n"
+    
+    print(f"Formatted summaries length: {len(summaries_text)}")
+
+    prompt = f"""Write a professional README.md file in Markdown format for the following project:
+
+            Project Name: {project_name}
+
+            Project Statistics:
+            - Total files: {stats.get('total_files', 0)}
+            - Successfully parsed: {stats.get('parsed_files', 0)}
+            - Languages: {', '.join(stats.get('languages', ['Unknown']))}
+
+            Key Classes and Components:
+            {summaries_text}
+
+            Please create a README with these sections:
+            1. # Project Title
+            2. ## Overview (2-3 sentences about what the project does)
+            3. ## Tech Stack (based on languages found)
+            4. ## Key Components (describe the main classes)
+            5. ## Getting Started (generic setup instructions)
+            6. ## Project Structure (brief overview)
+
+            Keep it professional and concise. Use proper Markdown formatting."""
+
+    try:
+        print("Calling Groq API for README generation...")
+        
+        # Try multiple models in order of preference
+        models_to_try = [
+            "llama-3.1-8b-instant",  
+            "mixtral-8x7b-32768",    
+            "llama3-8b-8192"         
+        ]
+        
+        for model in models_to_try:
+            try:
+                print(f"Trying model: {model}")
+                chat_completion = groq_client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=model,
+                    temperature=0.4,
+                    max_tokens=2000  # Increased for longer README
+                )
                 
-                for file in files:
-                    project_stats['total_files'] += 1
-                    file_path = os.path.join(root, file)
+                response = chat_completion.choices[0].message.content
+                if response and response.strip():
+                    print(f"✅ Successfully generated README with model: {model}")
+                    return response.strip()
+                else:
+                    print(f"Empty response from model: {model}")
+                    continue
                     
-                    # Use our robust parser
-                    parsed_data = parse_code_file(file_path)
-                    
-                    if parsed_data:
-                        # Update stats and results
-                        analysis_results.append(parsed_data)
-                        project_stats['parsed_files'] += 1
-                        project_stats['languages'].add(parsed_data.get('language'))
-                        print(f"   ✅ Parsed {file_path}")
+            except Exception as model_error:
+                print(f"Model {model} failed: {str(model_error)}")
+                continue
+        
+        # If all models fail, return a fallback README
+        print("All models failed, generating fallback README")
+        raise Exception("All Groq models failed")
+        
+    except Exception as e:
+        print(f"Groq API call for README failed: {e}")
+        
+        # Generate a detailed fallback README using the available data
+        fallback_readme = f"""# {project_name}
 
-            project_stats['languages'] = list(project_stats['languages'])
-            
-            # Store full analysis in a subcollection
-            analysis_data = {
-                'files': analysis_results,
-                'stats': project_stats,
-                'analyzed_at': datetime.utcnow()
-            }
-            project_ref.collection('analysis').document('latest').set(analysis_data)
-            
-            # Update the main project document with a summary and final status
-            project_ref.update({
-                "status": "completed",
-                "last_analyzed": datetime.utcnow(),
-                "analysis_summary": project_stats
-            })
-            print("✅ Analysis complete and results stored.")
+        ## Overview
+        This project has been automatically analyzed and contains {stats.get('parsed_files', 0)} parsed files across {len(stats.get('languages', []))} programming languages.
 
-        except Exception as e:
-            # ... (Error handling remains the same) ...
-            project_ref.update({"status": "error", "error_message": f"Analysis failed: {str(e)}"})
-            raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
+        ## Tech Stack
+        - **Languages**: {', '.join(stats.get('languages', ['Unknown']))}
+        - **Total Files**: {stats.get('total_files', 0)}
+        - **Successfully Parsed**: {stats.get('parsed_files', 0)}
 
-    return {
-        "message": "Analysis complete!",
-        "stats": project_stats
-    }
+        ## Key Components
 
+        """
+        
+        # Add class information manually
+        for class_name, summary in class_summaries.items():
+            fallback_readme += f"### {class_name}\n{summary}\n\n"
+        
+        fallback_readme += """## Getting Started
+
+        1. Clone this repository
+        2. Install the required dependencies for your chosen language
+        3. Review the component documentation above
+        4. Follow standard setup procedures for the identified tech stack
+
+        ## Notes
+        This README was automatically generated based on code analysis. Some sections may need manual updates.
+        """
+        
+        return fallback_readme
 @app.get("/api/projects/{project_id}/analysis")
 def get_project_analysis(project_id: str, user: dict = Depends(get_current_user)):
     """
@@ -261,52 +621,5 @@ def get_project_analysis(project_id: str, user: dict = Depends(get_current_user)
 
     return analysis_data
 
-@app.post("/api/generate-doc")
-def generate_documentation(request: DocGenRequest, user: dict = Depends(get_current_user)):
-    if not request.code_snippet:
-        raise HTTPException(status_code=400, detail="Code snippet cannot be empty.")
-
-    prompt = f"""
-    You are an expert programmer writing technical documentation.
-    Based on the following {request.language} code, write a concise and clear docstring.
-
-    The documentation should explain:
-    1. What the code does.
-    2. Its parameters (if any).
-    3. What it returns (if any).
-
-    Format the output as a professional docstring appropriate for the language. 
-    Do not include the original code in your response.
-
-    Code:
-    ```{request.language}
-    {request.code_snippet}
-    ```
-    """
-
-    try:
-        chat_completion = groq_client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt}],
-            model="llama-3.1-8b-instant",  # ✅ Updated to supported model
-        )
-
-        # ✅ Handle both possible formats
-        choice = chat_completion.choices[0].message
-        if isinstance(choice.content, list):  
-            # Newer SDK: extract text from list
-            generated_doc = "".join(
-                block.get("text", "") for block in choice.content if block.get("type") == "text"
-            )
-        else:
-            # Older SDK: content is already a string
-            generated_doc = choice.content
-
-        return {"documentation": generated_doc.strip()}
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()  # 🔍 print full stacktrace in backend logs
-        raise HTTPException(status_code=500, detail=f"Failed to communicate with AI model: {str(e)}")
-    
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
