@@ -39,6 +39,10 @@ class UserProfile(BaseModel):
     displayName: str
     bio: str
 
+class CodeReviewRequest(BaseModel):
+    code_snippet: str
+    language: str
+
 app = FastAPI()
 
 app.add_middleware(
@@ -235,24 +239,6 @@ def _generate_class_summary(class_snippet: str, method_docs: list, language: str
         print(f"Groq API call for class summary failed: {e}")
         return f"Failed to generate class summary: {str(e)}"
 
-def _is_method_of_class(method_construct, class_construct):
-    """
-    Helper function to determine if a method belongs to a class.
-    """
-    # Check if method has explicit parent_class field
-    if method_construct.get("parent_class") == class_construct.get("name"):
-        return True
-    
-    # Check line number proximity (method should be within class boundaries)
-    method_line = method_construct.get("line", 0)
-    class_line = class_construct.get("line", 0)
-    
-    # Simple heuristic: method should be after class declaration
-    if method_line > class_line:
-        return True
-    
-    return False
-    
 def run_full_analysis(project_id: str, github_url: str):
     """
     FINAL VERSION: 
@@ -591,6 +577,7 @@ def _generate_project_readme(project_name: str, stats: dict, class_summaries: di
         """
         
         return fallback_readme
+    
 @app.get("/api/projects/{project_id}/analysis")
 def get_project_analysis(project_id: str, user: dict = Depends(get_current_user)):
     """
@@ -621,5 +608,180 @@ def get_project_analysis(project_id: str, user: dict = Depends(get_current_user)
 
     return analysis_data
 
+def _generate_code_review(code_snippet: str, language: str) -> str:
+    """Enhanced helper function with better error handling and debugging."""
+    print(f"🔍 Code review request - Language: {language}, Code length: {len(code_snippet) if code_snippet else 0}")
+    
+    if not code_snippet or not code_snippet.strip():
+        return "❌ No code provided for review."
+
+    # Truncate very long code snippets to avoid token limits
+    max_code_length = 4000
+    if len(code_snippet) > max_code_length:
+        code_snippet = code_snippet[:max_code_length] + "\n... (code truncated)"
+        print(f"⚠️ Code truncated to {max_code_length} characters")
+
+    prompt = f"""
+    You are an expert code reviewer and senior software engineer. Analyze the following {language} code snippet. 
+    Your task is to identify potential issues and suggest improvements.
+
+    Structure your feedback in Markdown format with the following sections:
+    - **🔒 Security Vulnerabilities**: Check for risks like injection, hardcoded secrets, etc.
+    - **⚡ Performance Issues**: Look for inefficient loops, redundant operations, or memory issues.
+    - **🐛 Bugs & Logic Errors**: Identify potential bugs, null pointer issues, or logical flaws.
+    - **✨ Style & Best Practices**: Suggest improvements for clarity, naming conventions, and code quality.
+    - **📝 Documentation**: Comment on code documentation and readability.
+
+    For each issue, provide:
+    1. Brief explanation of the problem
+    2. Concrete suggestion for improvement
+    3. Example fix if applicable
+
+    If no issues are found in a category, state "No issues found."
+    If the code is excellent overall, commend it but still provide constructive suggestions.
+
+    Code to review:
+    ```{language}
+    {code_snippet}
+    ```
+    """
+
+    try:
+        print("🤖 Calling Groq API for code review...")
+        
+        # Try multiple models in order of preference
+        models_to_try = [
+            "llama-3.1-8b-instant",
+            "llama3-70b-8192",
+            "mixtral-8x7b-32768"
+        ]
+        
+        for model in models_to_try:
+            try:
+                print(f"🔄 Attempting with model: {model}")
+                
+                chat_completion = groq_client.chat.completions.create(
+                    messages=[{"role": "user", "content": prompt}],
+                    model=model,
+                    temperature=0.2,
+                    max_tokens=1500,  # Increased for detailed reviews
+                    top_p=0.9
+                )
+                
+                if not chat_completion.choices:
+                    print(f"❌ No choices returned from {model}")
+                    continue
+                    
+                response = chat_completion.choices[0].message.content
+                
+                if not response or len(response.strip()) < 10:
+                    print(f"❌ Empty or too short response from {model}: '{response}'")
+                    continue
+                    
+                print(f"✅ Successfully generated review with {model}")
+                print(f"📊 Response length: {len(response)} characters")
+                
+                return response.strip()
+                
+            except Exception as model_error:
+                print(f"❌ Model {model} failed: {str(model_error)}")
+                continue
+        
+        # If all models fail, return detailed error info
+        return f"""## ❌ Code Review Generation Failed
+
+**Error**: All AI models failed to generate a review.
+
+**Possible causes**:
+- API key issues with Groq
+- Network connectivity problems  
+- Code snippet too long or contains problematic content
+- API rate limiting
+
+**Code Info**:
+- Language: {language}
+- Code length: {len(code_snippet)} characters
+- Truncated: {'Yes' if len(code_snippet) > max_code_length else 'No'}
+
+**Next steps**:
+1. Check your Groq API key and credits
+2. Try with a smaller code snippet
+3. Check server logs for detailed errors
+"""
+        
+    except Exception as e:
+        error_msg = str(e)
+        print(f"❌ Critical error in code review: {error_msg}")
+        
+        return f"""## ❌ Code Review Error
+
+**Error**: {error_msg}
+
+**Debug Info**:
+- Language: {language}
+- Code length: {len(code_snippet)} characters
+- Groq API Key present: {'Yes' if groq_api_key else 'No'}
+
+Please check:
+1. Groq API configuration
+2. Network connectivity
+3. API rate limits
+4. Server logs for more details
+"""
+
+@app.post("/api/review-code")
+def review_code_snippet(request: CodeReviewRequest, user: dict = Depends(get_current_user)):
+    """
+    Enhanced endpoint with better logging and error handling.
+    """
+    print(f"📥 Code review request from user: {user.get('uid', 'unknown')}")
+    print(f"📋 Request: language={request.language}, code_length={len(request.code_snippet)}")
+    
+    # Validate inputs
+    if not request.code_snippet or not request.code_snippet.strip():
+        return {"error": "Code snippet cannot be empty", "review": None}
+    
+    if not request.language or not request.language.strip():
+        request.language = "unknown"
+    
+    # Generate the review
+    try:
+        review = _generate_code_review(request.code_snippet, request.language)
+        
+        if not review:
+            return {"error": "Generated review is empty", "review": "No review content was generated."}
+        
+        print(f"✅ Code review generated successfully ({len(review)} chars)")
+        return {"review": review, "error": None}
+        
+    except Exception as e:
+        error_msg = f"Failed to generate code review: {str(e)}"
+        print(f"❌ {error_msg}")
+        return {"error": error_msg, "review": None}
+
+# Additional debugging endpoint (optional - remove in production)
+@app.get("/api/debug/groq-status")
+def check_groq_status(user: dict = Depends(get_current_user)):
+    """Debug endpoint to check Groq API status."""
+    try:
+        # Simple test call
+        test_completion = groq_client.chat.completions.create(
+            messages=[{"role": "user", "content": "Say hello"}],
+            model="llama-3.1-8b-instant",
+            max_tokens=10
+        )
+        
+        return {
+            "status": "working",
+            "api_key_present": bool(groq_api_key),
+            "test_response": test_completion.choices[0].message.content if test_completion.choices else "No response"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "api_key_present": bool(groq_api_key)
+        }
+    
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

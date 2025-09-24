@@ -1,4 +1,7 @@
 /* src/index.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @font-face {
   font-family: 'Exo 2';
@@ -14,11 +17,6 @@
   font-style: normal;
 }
 
-/* Keep the Tailwind directives below the font imports */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
@@ -26,4 +24,29 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom Scrollbar */
+.scrollbar-thin {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: #ff4d4d #1f1f1f; /* thumb color, track color */
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: #1f1f1f;
+  border-radius: 8px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: #ff4d4d;
+  border-radius: 8px;
+  border: 2px solid #1f1f1f; /* space around thumb */
+}
+
+.scrollbar-thin:hover::-webkit-scrollbar-thumb {
+  background-color: #ff6b6b;
 }
